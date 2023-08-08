@@ -1,0 +1,73 @@
+{
+    "WRAPPER": "((_|\\.|-)[\\d_]+.)?(mp4|webm|dav)",
+    "videos/1_ch2": {
+        "E": null,
+        "N": "videos/NVR4_ch28_main",
+        "NE": null,
+        "NW": null,
+        "S": null,
+        "SE": null,
+        "SW": null,
+        "W": null
+    },
+    "videos/NVR4_ch28_main": {
+        "E": null,
+        "N": null,
+        "NE": null,
+        "NW": null,
+        "S": null,
+        "SE": null,
+        "SW": null,
+        "W": null
+    },
+    "videos/Test_video": {
+        "E": null,
+        "N": null,
+        "NE": null,
+        "NW": null,
+        "S": null,
+        "SE": null,
+        "SW": null,
+        "W": null
+    },
+    "videos/Test_video_1": {
+        "E": null,
+        "N": null,
+        "NE": null,
+        "NW": null,
+        "S": null,
+        "SE": null,
+        "SW": "videos/ffmpeg_out",
+        "W": "videos/NVR4_ch28"
+    },
+    "videos/Test_video_2": {
+        "E": null,
+        "N": null,
+        "NE": null,
+        "NW": "videos/NVR4_ch28",
+        "S": null,
+        "SE": null,
+        "SW": null,
+        "W": null
+    },
+    "videos/ffmpeg_out": {
+        "E": null,
+        "N": null,
+        "NE": null,
+        "NW": null,
+        "S": null,
+        "SE": null,
+        "SW": null,
+        "W": "videos/NVR4_ch28"
+    },
+    "videos/moviePy_out.mp4": {
+        "E": null,
+        "N": null,
+        "NE": null,
+        "NW": null,
+        "S": null,
+        "SE": null,
+        "SW": null,
+        "W": "videos/Test_video_1"
+    }
+}

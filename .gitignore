@@ -1,0 +1,8 @@
+videos/
+dokumentumok/
+__pycache__/
+clip-edited.log
+clip.log
+testings-*
+build
+dist
