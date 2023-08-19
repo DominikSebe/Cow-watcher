@@ -19,13 +19,15 @@ class TimelineModel(QAbstractItemModel):
    
     ### Constructor
     def __init__(self, parent: QObject = None):
-        super().__init__(parent)
+        super(TimelineModel, self).__init__(parent)
+
 
         self._position = 0
         self._currentIndex = -1
         self._selectedIndex = -1
         self._scaleFactor = 1.0
         self._trackHeight = 100
+        self._maxDuration = 86400000 # 60 seconds * 60 minutes (3600 seconds) * 24 hour (86400 seconds) * 1000 (86 400 000 millieseconds)
         self._storedSources : list[str] = []
         self._clips: list[ClipInfo] = []
     
@@ -46,15 +48,15 @@ class TimelineModel(QAbstractItemModel):
         # Symbolic names and assigned values
         SourceRole = auto()
         NameRole = auto()
-        TotalFramesRole = auto()
+        FramesRole = auto()
         FrameRateRole = auto()
         PlayRateRole = auto()
         InPointRole = auto()
         OutPointRole = auto()
-        FrameDurationRole = auto()
-        TimeDurationRole = auto()
+        DurationRole = auto()
+        LengthRole = auto()
+        OffsetRole = auto()
         ValidRole = auto()
-        AdjecentRole = auto()
     
     ### Signals
     positionChanged = Signal(int, name='positionChanged', arguments=['position'])
@@ -64,6 +66,7 @@ class TimelineModel(QAbstractItemModel):
     selectedClipChanged = Signal(ClipInfo, name='selectedClipChanged', arguments=['clip'])
     scaleFactorChanged = Signal(float, name='scaleFacttorChanged', arguments=['scaleFactor'])
     trackHeightChanged = Signal(int, name='trackHeightChanged', arguments=['trackHeight'])
+    maxDurationChanged = Signal(int, name='maxDurationChanged', arguments=['maxDuration'])
     storedSourcesChanged = Signal(name='storedClipsChanged')
 
     ### Properties
@@ -83,6 +86,10 @@ class TimelineModel(QAbstractItemModel):
             
         return self._clips[self._currentIndex]
 
+    @Property(int)
+    def currentOffset(self):
+        return self.data(self.createIndex(self._currentIndex, 0, 0), self.Roles.OffsetRole)
+
     @Property(int, notify=selectedIndexChanged)
     def selectedIndex(self):
         return self._selectedIndex
@@ -91,6 +98,7 @@ class TimelineModel(QAbstractItemModel):
     def selectedClip(self):
         if self._selectedIndex == -1:
             return None
+        
         return self._clips[self._selectedIndex]
 
     @Property(float, notify=scaleFactorChanged)
@@ -100,7 +108,11 @@ class TimelineModel(QAbstractItemModel):
     @Property(int, notify=trackHeightChanged)
     def trackHeight(self):
         return self._trackHeight
-
+    
+    @Property(int, notify=maxDurationChanged)
+    def maxDuration(self):
+        return self._maxDuration
+    
     @Property(list, notify=storedSourcesChanged)
     def sources(self):
         return self._storedSources
@@ -108,18 +120,17 @@ class TimelineModel(QAbstractItemModel):
     ## Setters
     @position.setter
     def position(self, value: int):
-        if 0 <= value:
-            if self._position != value:
-                self._position = value
-                self.positionChanged.emit(self._position)
+        if 0 <= value <= self._maxDuration and self._position != value:
+            self._position = value
+            self.positionChanged.emit(self._position)
 
-                clip = self.atPosition(self._position)
-                self.currentClip = clip
+            clip = self.atPosition(self._position)
+            self.currentClip = clip
 
     @currentIndex.setter
     def currentIndex(self, value: int):
-        if not(-1 <= value < len(self._clips)):
-            raise IndexError(f'Value must be between 0 and {len(self._clips)-1} or -1')
+        if not(0 <= value < len(self._clips)):
+            value=-1
         if self._currentIndex != value:
             self._currentIndex = value
             self.currentIndexChanged.emit(self._currentIndex)
@@ -170,6 +181,12 @@ class TimelineModel(QAbstractItemModel):
             if self._trackHeight != value:
                 self._trackHeight = value
                 self.trackHeightChanged.emit(self._trackHeight)
+
+    @maxDuration.setter
+    def maxDuration(self, value: int):
+        if 0 < value and self._maxDuration != value:
+            self._maxDuration = value
+            self.maxDurationChanged.emit(self._maxDuration)
 
     ### Implementations
     def index(self, row: int, column: int, parent: QModelIndex = ...):
@@ -263,7 +280,7 @@ class TimelineModel(QAbstractItemModel):
                         return clip.source
                     case self.Roles.NameRole:
                         return clip.name
-                    case self.Roles.TotalFramesRole:
+                    case self.Roles.FramesRole:
                         return clip.totalFrames
                     case self.Roles.FrameRateRole:
                         return clip.frameRate
@@ -273,14 +290,14 @@ class TimelineModel(QAbstractItemModel):
                         return clip.inPoint
                     case self.Roles.OutPointRole:
                         return clip.outPoint
-                    case self.Roles.FrameDurationRole:
-                        return clip.frameDuration
-                    case self.Roles.TimeDurationRole:
-                        return clip.timeDuration
+                    case self.Roles.DurationRole:
+                        return clip.duration
+                    case self.Roles.LengthRole:
+                        return clip.length
+                    case self.Roles.OffsetRole:
+                        return sum([self._clips[i].length for i in range(0, index.row())])
                     case self.Roles.ValidRole:
                         return clip.valid
-                    case self.Roles.AdjecentRole:
-                        return clip.adjecent
                     case _:
                         return clip;
             else:
@@ -293,7 +310,7 @@ class TimelineModel(QAbstractItemModel):
                         return [clip.source for clip in self._clips]
                     case self.Roles.NameRole:
                         return [clip.name for clip in self._clips]
-                    case self.Roles.TotalFramesRole:
+                    case self.Roles.FramesRole:
                         return [clip.totalFrames for clip in self._clips]
                     case self.Roles.FrameRateRole:
                         return [clip.frameRate for clip in self._clips]
@@ -303,14 +320,14 @@ class TimelineModel(QAbstractItemModel):
                         return [clip.inPoint for clip in self._clips]
                     case self.Roles.OutPointRole:
                         return [clip.outPoint for clip in self._clips]
-                    case self.Roles.FrameDurationRole:
-                        return [clip.frameDuration for clip in self._clips]
-                    case self.Roles.TimeDurationRole:
-                        return [clip.timeDuration for clip in self._clips]
+                    case self.Roles.DurationRole:
+                        return [clip.duration for clip in self._clips]
+                    case self.Roles.LengthRole:
+                        return [clip.length for clip in self._clips]
+                    case self.Roles.OffsetRole:
+                        return [sum([self._clips[i].length for i in range(0, self._clips.index(clip))]) for clip in self._clips] 
                     case self.Roles.ValidRole:
                         return [clip.valid for clip in self._clips]
-                    case self.Roles.AdjecentRole:
-                        return [clip.adjecent for clip in self._clips]
                     case _:
                         return self._clips;
         return None
@@ -326,26 +343,15 @@ class TimelineModel(QAbstractItemModel):
 
                 clipIndex = index.row()
 
+
                 match role:
                     case Qt.ItemDataRole.DisplayRole:
                         self._clips[clipIndex].name = value
                         self.dataChanged.emit(index, index, [Qt.ItemDataRole.DisplayRole])
                     case self.Roles.SourceRole:
-                        changedRoles = [self.Roles.SourceRole, self.Roles.TotalFramesRole, self.Roles.FrameRateRole]
-
-                        onNameChanged = lambda name: changedRoles.append(self.Roles.NameRole)
-                        onValidChanged = lambda valid: changedRoles.append(self.Roles.ValidRole)
-                        onOutPointChanged = lambda outPoint: changedRoles.append(self.Roles.OutPointRole)
-
-                        self._clips[clipIndex].nameChanged.connect(onNameChanged)
-                        self._clips[clipIndex].validChanged.connect(onValidChanged)
-                        self._clips[clipIndex].outPointChanged.connect(onOutPointChanged)
+                        changedRoles = [self.Roles.SourceRole, self.Roles.FramesRole, self.Roles.FrameRateRole, self.Roles.DurationRole, self.Roles.LengthRole, self.Roles.ValidRole]
 
                         self._clips[clipIndex].source = value
-
-                        self._clips[clipIndex].nameChanged.disconnect(onNameChanged)
-                        self._clips[clipIndex].validChanged.disconnect(onValidChanged)
-                        self._clips[clipIndex].outPointChanged.disconnect(onOutPointChanged)
 
                         self.dataChanged.emit(index, index, changedRoles)
                     case self.Roles.NameRole:
@@ -358,31 +364,21 @@ class TimelineModel(QAbstractItemModel):
                         self.layoutAboutToBeChanged.emit()
 
                         self._clips[clipIndex].inPoint = value
-                        self.dataChanged.emit(index, index, [self.Roles.InPointRole])
+                        self.dataChanged.emit(index, index, [self.Roles.InPointRole, self.Roles.LengthRole])
 
-                        if 0 < clipIndex:
-                            self._clips[clipIndex-1].outPoint = value-1
-                            self.dataChanged.emit(clipIndex-1, clipIndex-1, [self.Roles.OutPointRole])
+
+                        self.dataChanged.emit(self.createIndex(clipIndex + 1, 0, 0), self.createIndex(len(self._clips), 0, 0), [self.Roles.OffsetRole])
                             
                         self.layoutChanged.emit()
                     case self.Roles.OutPointRole:
                         self.layoutAboutToBeChanged.emit()
 
                         self._clips[clipIndex].outPoint = value
-                        self.dataChanged.emit(index, index, [self.Roles.OutPointRole])
+                        self.dataChanged.emit(index, index, [self.Roles.OutPointRole, self.Roles.LengthRole])
 
-                        if clipIndex < len(self._clips) - 1:
-                            self._clips[clipIndex+1].inPoint = value+1
-                            self.dataChanged.emit(clipIndex+1, clipIndex+1, [self.Roles.InPointRole])
+                        self.dataChanged.emit(self.createIndex(clipIndex + 1, 0, 0), self.createIndex(len(self._clips), 0, 0), [self.Roles.OffsetRole])
 
                         self.layoutChanged.emit()
-                    case self.Roles.AdjecentRole:
-                        if isinstance(value, dict[str, str]) and len(dict) == 0:
-                            key, value = tuple(value.items())[0]
-                            self._clips[clipIndex].setAdjecent(key, value)
-                            return True
-                        else:
-                            return False
                     case _:
                         if isinstance(value, ClipInfo):
                             self._clips[clipIndex] = value
@@ -408,6 +404,8 @@ class TimelineModel(QAbstractItemModel):
             for i in range(row, row+count):
                 self._clips.insert(i, ClipInfo())
 
+            self.dataChanged.emit(self.createIndex(row+count, 0, 0), self.createIndex(len(self._clips), 0, 0), self.Roles.OffsetRole)
+
             # End row insertion
             self.endInsertRows()
 
@@ -428,6 +426,8 @@ class TimelineModel(QAbstractItemModel):
             for i in reversed(range(row, row+count)):
                 del self._clips[i]
 
+            self.dataChanged.emit(self.createIndex(row+count, 0, 0), self.createIndex(len(self._clips), 0, 0), self.Roles.OffsetRole)
+
             # End row removal
             self.endRemoveRows()
 
@@ -445,13 +445,14 @@ class TimelineModel(QAbstractItemModel):
         # Custom roles
         roles[self.Roles.SourceRole] = QByteArray(b'source')
         roles[self.Roles.NameRole] = QByteArray(b'name')
-        roles[self.Roles.TotalFramesRole] = QByteArray(b'totalFrames')
+        roles[self.Roles.FramesRole] = QByteArray(b'frames')
         roles[self.Roles.FrameRateRole] = QByteArray(b'frameRate')
         roles[self.Roles.PlayRateRole] = QByteArray(b'playRate')
         roles[self.Roles.InPointRole] = QByteArray(b'inPoint')
         roles[self.Roles.OutPointRole] = QByteArray(b'outPoint')
-        roles[self.Roles.FrameDurationRole] = QByteArray(b'frameDuration')
-        roles[self.Roles.TimeDurationRole] = QByteArray(b'timeDuration')
+        roles[self.Roles.DurationRole] = QByteArray(b'duration')
+        roles[self.Roles.LengthRole] = QByteArray(b'length')
+        roles[self.Roles.OffsetRole] = QByteArray(b'offset')
         roles[self.Roles.ValidRole] = QByteArray(b'valid')
 
         return roles
@@ -471,52 +472,71 @@ class TimelineModel(QAbstractItemModel):
         Returns index of a clip in the underlying list.
         """
         return self._clips.index(clip)
+    
+    @Slot(int, name="atIndex", result=ClipInfo)
+    def atIndex(self, clipIndex: int):
+        if 0 <= clipIndex < len(self._clips):
+            return self._clips[clipIndex]
+        
+        return None
 
     @Slot(int, bool, name='atPosition', result=ClipInfo)
-    def atPosition(self, position: int, inMilliseconds = False):
+    def atPosition(self, position: int):
         """
         Returns the clip at the given postion if there is one.
         """
-        if 0 <= position:
-            if inMilliseconds:
-                beginning = 0.0
-                for clip in self._clips:
-                    end = beginning + clip.frameDuration * 1000 / clip.frameRate
-                    if beginning <= position <= end:
-                        return clip
-                    
-                    beginning += end
-            else:
-                for clip in self._clips:
-                    if isinstance(clip, ClipInfo) and clip.inPoint <= position <= clip.outPoint:
-                        return clip
-        return
+        if 0 <= position <= self._maxDuration:
+            offset = 0
+            for clip in self._clips:
+                if offset <= position < offset + clip.length:
+                    return clip
+                else:
+                    offset += clip.length
+           
+        return None
 
-    @Slot(int, int, name='splitClip')
-    def splitClip(self, clipIndex: int, position: int):
+    @Slot(int, name='splitClip')
+    def splitClip(self, position: int = ...):
         """
         Split a clip at the given position
 
         :param int clipIndex: The index of the clip to split.
         :param int position: The point where to split the clip.
         """
-        print(f'Cutting: {clipIndex} at {position}')
+        if position == ...:
+            position = self._position
+        index = self._currentIndex
+
         self.layoutAboutToBeChanged.emit()
+
         # Insert a new row (ClipInfo)
-        self.insertRows(clipIndex+1, 1, self.createIndex(0, 0, TRACK_ID))
+        self.insertRows(index + 1, 1, self.createIndex(0, 0, TRACK_ID))
         
         # Save original source an out point
-        originalSource = self._clips[clipIndex].source
-        originalOutPoint = self._clips[clipIndex].outPoint
+        source = self._clips[index].source
+        inPoint = self._clips[index].inPoint
+        outPoint = self._clips[index].outPoint
+
+        position += inPoint - self.data(self.createIndex(index, 0, 0), self.Roles.OffsetRole)
 
         # Change original clip
-        self._clips[clipIndex].outPoint = position
-        self.setData(self.createIndex(clipIndex, 0, 0), position, self.Roles.OutPointRole)
-        
+        self.setData(self.createIndex(index, 0, 0), position, self.Roles.OutPointRole)
+
         # Change inserted clip
-        self.setData(self.createIndex(clipIndex+1, 0, 0), originalSource, self.Roles.SourceRole)
-        self.setData(self.createIndex(clipIndex+1, 0, 0), position+1, self.Roles.InPointRole)
-        self.setData(self.createIndex(clipIndex+1, 0, 0), originalOutPoint, self.Roles.OutPointRole)
+        self.setData(self.createIndex(index + 1, 0, 0), source, self.Roles.SourceRole)
+        self.setData(self.createIndex(index + 1, 0, 0), position + 1, self.Roles.InPointRole)
+        self.setData(self.createIndex(index + 1, 0, 0), outPoint, self.Roles.OutPointRole)
+
+        self.layoutChanged.emit()
+
+    @Slot(ClipInfo, name='removeClip')
+    def removeClip(self, clip: ClipInfo):
+        self.removeClipOfIndex(self._clips.index(clip))
+
+    @Slot(int, name="removeClipOfIndex")
+    def removeClipOfIndex(self, clipIndex: int):
+        self.layoutAboutToBeChanged.emit()
+        self.removeRows(clipIndex, 1, self.createIndex(0, 0, TRACK_ID))
         self.layoutChanged.emit()
 
     def indexOfSource(self, source: str):
@@ -577,11 +597,4 @@ class TimelineModel(QAbstractItemModel):
 
         self.beginInsertRows(parent, insertIndex, insertIndex)
         self._clips.insert(insertIndex, ClipInfo(self._storedSources[sourceIndex]))
-        self._clips[insertIndex].inPoint = 0
-        self._clips[insertIndex].outPoint = self._clips[insertIndex].totalFrames
         self.endInsertRows()
-
-    def removeClip(self, clipIndex: int):
-        self.beginRemoveRows(self.createIndex(0, 0, 128), clipIndex, clipIndex)
-        del self._clips[clipIndex]
-        self.endRemoveRows()
