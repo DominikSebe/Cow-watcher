@@ -8,7 +8,7 @@ ToolBar {
     property color checkedColor: Qt.rgba(activePalette.highlight.r, activePalette.highlight.g, activePalette.highlight.b, 0.3)
     property bool enableButtons: true
     property alias scaleValue: scaleSlider.value
-    property bool playButto: false
+    property alias playBtn: playButton
 
     signal skippedBackward(var sourceObject)
     signal soughtBackward(var sourceObject)

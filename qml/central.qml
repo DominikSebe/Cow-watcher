@@ -7,7 +7,7 @@ import Custom
 
 Rectangle {
     id: centralRoot
-    color: 'transparent'
+    color: 'black'
     anchors {
         fill: parent
         margins: 5
@@ -16,8 +16,7 @@ Rectangle {
     readonly property color selectedTrackColor: Qt.rgba(0.5, 0.5, 0, 0.5)
     readonly property color base: Qt.rgba(255/255, 215/255, 0/255, 1.0)
     readonly property int padding: 30
-    readonly property int maxTime: 86400 // 24 hour => 60 * 60 * 24 = 86400 seconds
-    property int execCounter: 0
+    readonly property int maxWidth: 86400 // 24 hour => 60 * 60 * 24 = 86400 seconds
 
     function milisecondToFrames(milliseconds, fps=25) {
         return milliseconds * fps / 1000;
@@ -26,30 +25,14 @@ Rectangle {
         return frames * 1000 / fps;
     }
 
-    // Bindigs - binding objects are not overwritten when the bound property is changed from outside of the binding
-    Binding {
-        // Binding the source of the video to the currentClip
-        target: videoPlayer
-        property: 'source'
-        value: TimelineModel.currentClip != null? TimelineModel.currentClip.source : ''
-    }
-    Binding {
-        // Binding position of cursor to the position of the video, when not dragging the cursor
-        target: cursor
-        delayed: true
-        property: 'x'
-        when: !cursorMouseArea.isActive
-        value: videoPlayer.position / 1000 * TimelineModel.scaleFactor - viewPort.contentItem.contentX
-    }
-
     Video {
-        // Flags of the video (From least significant to most (right to left)):
-        // 1st bit - Seek position, move the video to the position of the model
-        // 2nd bit - Next Clip, continue with the next clip
-        // 3rd bit - Log Position, print out the position of the video, when it changes
-        property int flags: 0b0000
+        property bool syncTimeline: true
+        property bool syncVideo: false
+        property bool sourceChangedHandlerEnabled: true
+        property bool seekingManually: false
 
         id: videoPlayer
+        source: ''
         height: parent.height - toolBar.height - ruler.height - tracksBackground.height
         anchors {
             left: parent.left
@@ -57,24 +40,66 @@ Rectangle {
             right: parent.right
         }
 
-        onPositionChanged: function(){
-            if (framestoMilliseconds(TimelineModel.currentClip.outPoint) <= position){
-                flags |= 0b0010;
-                TimelineModel.currentIndex ++;
-                return;
+        function currentClipChanged(currentClip) {
+            if (currentClip != null) {                
+                videoPlayer.syncTimeline = false
+                videoPlayer.syncVideo = true
+
+                videoPlayer.source = currentClip.source
+                
             }
-            if (flags & 0b0001){
-                flags &= 0b1110;
-                seek(framestoMilliseconds(TimelineModel.position))
+            else videoPlayer.source = ''
+        }
+        
+        Connections {
+            target: videoPlayer
+            function onPositionChanged() {
+                print("Position: " + videoPlayer.position)
+                TimelineModel.position = videoPlayer.position + TimelineModel.currentOffset - TimelineModel.currentClip.inPoint
+            }
+            enabled: videoPlayer.syncTimeline
+        }
+
+        Connections {
+            target: videoPlayer
+            function onPositionChanged() {
+                var syncPosition = TimelineModel.position + TimelineModel.currentOffset - TimelineModel.currentClip.inPoint;
+
+                if (videoPlayer.position != syncPosition){
+                    videoPlayer.seek(syncPosition)
+                } else if (!videoPlayer.seekingManually){
+                    videoPlayer.syncTimeline = true
+                    videoPlayer.syncVideo = false
+                }
+            }
+            enabled: videoPlayer.syncVideo
+        }
+
+        Connections {
+            target: videoPlayer
+            function onSourceChanged(source) {
+                videoPlayer.play()
+
+                if (videoPlayer.source == '')
+                    toolBar.enableButtons = false
+                else
+                    toolBar.enableButtons = true
+            }
+            enabled: videoPlayer.sourceChangedHandlerEnabled
+        }
+
+        Connections {
+            target: videoPlayer
+            function onPlaybackStateChanged(){
+                if (videoPlayer.playbackState == MediaPlayer.PlayingState)
+                    toolBar.playBtn.icon.source = 'image://standardicons/SP_MediaPause'
+                else
+                    toolBar.playBtn.icon.source = 'image://standardicons/SP_MediaPlay'
             }
         }
-        onSourceChanged: {
-            if (flags & 0b0010){
-                flags ^= 0b0011;
-                TimelineModel.position = TimelineModel.currentClip.inPoint;      
-                play(); 
-                return;       
-            }
+
+        Component.onCompleted: {
+            TimelineModel.currentClipChanged.connect(currentClipChanged)
         }
 
         Rectangle {
@@ -350,11 +375,9 @@ Rectangle {
         onPlaybackChanged: function (sourceObject) {
             if (videoPlayer.playbackState == MediaPlayer.PlayingState) {
                 videoPlayer.pause()
-                sourceObject.icon.source = 'image://standardicons/SP_MediaPlay'
             }
             else {
                 videoPlayer.play()
-                sourceObject.icon.source = 'image://standardicons/SP_MediaPause'
 
             }
         }
@@ -384,12 +407,9 @@ Rectangle {
         ScrollBar.horizontal.policy: ScrollBar.AlwaysOn
         
         MouseArea {
-            // Enable of moving the cursor by clicking on the ruler
-            property int videoState: 0
-            property bool isActive: false
-
             id: cursorMouseArea
             acceptedButtons: Qt.LeftButton
+
             // Area is attached to the parent from left, right and top
             anchors{
                 left: parent.left
@@ -406,40 +426,33 @@ Rectangle {
             }
             onPressed: function(mouse){
                 // Move video position to cursor on press
-                isActive = true;
-                videoState = videoPlayer.playbackState
-                videoPlayer.pause()
-                TimelineModel.position = mouse.x * 25 / TimelineModel.scaleFactor
-                if (TimelineModel.currentIndex != -1){
-                    videoPlayer.flags |= 0b0001
-                    videoPlayer.seek(framestoMilliseconds(TimelineModel.position))
-                }
+                videoPlayer.syncTimeline = false
+                videoPlayer.syncVideo = true
+                videoPlayer.seekingManually = true
+
+                TimelineModel.position = mouse.x / timeline.width * TimelineModel.maxDuration
+
             }
             onReleased: function (mouse) {
-                if (videoState == 1)
-                    videoPlayer.play();
-                else
-                    videoPlayer.pause()
-                isActive = false;
+                videoPlayer.seek(TimelineModel.position - TimelineModel.currentOffset + TimelineModel.currentClip.inPoint)
+                videoPlayer.seekingManually = false
             }
             onPositionChanged: function(drag) {
                 // Move video position to cursor when dragging
-                TimelineModel.position = drag.x * 25 / TimelineModel.scaleFactor
-                if (TimelineModel.currentIndex != -1) {
-                    videoPlayer.flags |= 0b0001
-                    videoPlayer.seek(framestoMilliseconds(TimelineModel.position))
-                }
+                TimelineModel.position = drag.x / timeline.width * TimelineModel.maxDuration
+                videoPlayer.seek(TimelineModel.position - TimelineModel.currentOffset + TimelineModel.currentClip.inPoint)
+                
             }
         }
 
         Rectangle {
             // Container
             id: timeline
-            width: centralRoot.maxTime * TimelineModel.scaleFactor >= centralRoot.width ? centralRoot.maxTime * TimelineModel.scaleFactor : centralRoot.width
+            width: centralRoot.maxWidth * TimelineModel.scaleFactor >= centralRoot.width ? centralRoot.maxWidth * TimelineModel.scaleFactor : centralRoot.width
              // Ruler
             Ruler {
                 id: ruler
-                maxSeconds: centralRoot.maxTime
+                maxSeconds: centralRoot.maxWidth
                 scaleValue: TimelineModel.scaleFactor
                 width: parent.width
             }
@@ -463,7 +476,7 @@ Rectangle {
         color: 'black'
         height: viewPort.height - viewPort.ScrollBar.horizontal.height
         y: videoPlayer.height + toolBar.height
-        x: videoPlayer.position / 1000 * TimelineModel.scaleFactor - viewPort.contentItem.contentX
+        x: centralRoot.maxWidth / TimelineModel.maxDuration * TimelineModel.position - viewPort.contentItem.contentX
         Drag.active: cursorMouseArea.drag.active
         Drag.proposedAction: Qt.MoveAction
 
@@ -497,18 +510,19 @@ Rectangle {
                 CentralWidget.clipClicked(clipIndex)
             }
             onChangeClipSource: function(clipIndex){
-                CentralWidget.selection = clip.DelegateModel.itemsIndex
+                
             }
             onCutClip: function(clipIndex){
-                var clip = TimelineModel.atPosition(videoPlayer.position, true)
-                var currentClipIndex = TimelineModel.indexOf(clip)
-                if (currentClipIndex == clipIndex)
-                    TimelineModel.splitClip(clipIndex, milisecondToFrames(videoPlayer.position, TimelineModel.currentClip.frameRate))
-                else
-                    CentralWidget.warningRequested('Az időcsúszka nem a vágni kívánt klip felett helyezkedik el.')
+                if (TimelineModel.currentIndex != clipIndex) {
+                    CentralWidget.warningRequested("Helyezze a csúszkáz a vágni kívánt klip felé")
+                }
+                else {
+                    TimelineModel.splitClip(TimelineModel.position)
+                }
             }
             onRemoveClip: function(clipIndex){
-
+                TimelineModel.removeClipOfIndex(clipIndex)
+                videoPlayer.seek(TimelineModel.position - TimelineModel.currentOffset + TimelineModel.currentClip.inPoint)
             }
         }
     }

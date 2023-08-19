@@ -24,16 +24,17 @@ Rectangle {
             clipIndex: index
             source: model.source
             name: model.name
-            totalFrames: model.totalFrames
+            frames: model.frames
             frameRate: model.frameRate
             playRate: model.playRate
             inPoint: model.inPoint
             outPoint: model.outPoint
-            frameDuration: model.frameDuration
-            timeDuration: model.timeDuration
+            length: model.length
+            duration: model.duration
+            offset: model.offset
             selected: TimelineModel.selectedIndex == index
             valid: model.valid
-            width: model.frameDuration / model.frameRate * TimelineModel.scaleFactor
+            width: model.length * (trackRoot.width / TimelineModel.maxDuration) * TimelineModel.scaleFactor
             height: trackRoot.height
             onClicked: function (clipIndex) {
                 trackRoot.clipClicked(clipIndex)

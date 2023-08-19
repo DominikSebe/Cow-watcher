@@ -10,13 +10,14 @@ Rectangle {
     property int clipIndex: -1
     property string source: ''
     property string name: ''
-    property int totalFrames: 0
+    property int frames: 0
     property int frameRate: 0
     property double playRate: 1.0
     property int inPoint: -1
     property int outPoint: -1
-    property int frameDuration: 0
-    property double timeDuration: 0.0
+    property int length: 0
+    property double duration: 0.0
+    property int offset: 0
     property bool selected: false
     property bool valid: false
     
@@ -26,13 +27,17 @@ Rectangle {
     signal cut(var clipclipIndex)
     signal removed(var clipclipIndex)
 
-    onWidthChanged: function(){
-        print(width)
-        print(inPoint)
-        print(outPoint)
-        print(frameDuration)
-        print(frameRate)
-        print(totalFrames)
+    onLengthChanged: function(){
+        print('-----------------')
+        print("Index: " + clipIndex)
+        print("Width:" + width)
+        print("In: " + inPoint)
+        print("Out: " + outPoint)
+        print("Len: " + length)
+        print("Rate: " + frameRate)
+        print("Frames: " + frames)
+        print("Duration: " + duration)
+        print("Offset: " + offset)
         print('-----------------')
     }
 
@@ -116,7 +121,7 @@ Rectangle {
             if (mouse.button == Qt.LeftButton){
                 clipRoot.clicked(clipRoot.clipIndex)
             }
-            else {
+            else if (mouse.button == Qt.RightButton) {
                 menu.popup()
             }
         }

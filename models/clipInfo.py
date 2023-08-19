@@ -11,53 +11,45 @@ class ClipInfo(QObject):
 
         self._source = ''
         self._name = ''
-        self._totalFrames: int = 0
+        self._frames = 0
         self._frameRate = 0
         self._playRate = 1.0
         self._inPoint = -1
         self._outPoint = -1
+        self._duration = 0.0
 
         if source != ...:
-            if not path.exists(source):
-                raise FileNotFoundError(
-                    f'File \'{source}\' does not exist'
-                )
-
-            file = VideoFileClip(source)
-            self._source = file.filename
-            self._name = file.filename.split('/')[-1]
-            self._totalFrames: int = file.reader.nframes
-            self._frameRate: int = file.fps
-
-            file.close()
+            self.source = source
 
     ### Destructor
     def __del__(self):
         pass
 
     ### Signals (PySide)
-    clipChanged = Signal(str, int, int, name='clipChanged', arguments=['source', 'totalFrames', 'frameRate'])
+    sourceChanged = Signal(str, name='sourceChanged', arguments=['source'])
+    frameRateChanged = Signal(int, name="frameRateChanged", arguments=['frameRate'])
+    durationChanged = Signal(int, name='durationChanged', arguments=['duration'])
     nameChanged = Signal(str, name='nameChanged', arguments=['name'])
     playRateChanged = Signal(float, name='playRateChanged', arguments=['playRate'])
     inPointChanged = Signal(int, name='inPointChanged', arguments=['inPoint'])
     outPointChanged = Signal(int, name='outPointChanged', arguments=['outPoint'])
-    validChanged = Signal(bool, name='validChanged', arguments=['valid'])
+    validityChanged = Signal(bool, name='valididtyChanged', arguments=['valid'])
 
     ### Proprerties (PySide)
     ## Getters
-    @Property(str, notify=clipChanged)
+    @Property(str, notify=sourceChanged)
     def source(self):
         return self._source
 
     @Property(str, notify=nameChanged)
     def name(self):
-        return self._name
+        return self._name if self._name != '' else self._source
 
     @Property(int)
     def totalFrames(self):
-        return self._totalFrames
+        return self._frames
 
-    @Property(int)
+    @Property(int, notify=frameRateChanged)
     def frameRate(self):
         return self._frameRate
 
@@ -74,18 +66,22 @@ class ClipInfo(QObject):
         return self._outPoint
 
     @Property(int)
-    def frameDuration(self):
-        return self._outPoint - self._inPoint
+    def length(self):
+        inPoint = self._inPoint if 0 <= self._inPoint else 0
+        outPoint = self._outPoint if 0 < self._outPoint else self._duration
 
-    @Property(float)
-    def timeDuration(self):
-        print(f"Frames: {self._outPoint - self._inPoint}")
-        print(f"Dividing by {((self._frameRate if self._frameRate != 0 else 24) * self._playRate)}")
-        return (self._outPoint - self._inPoint) / ((self._frameRate if self._frameRate != 0 else 24) * self._playRate)
+        return outPoint - inPoint
 
-    @Property(bool, notify=validChanged)
+    @Property(float, notify=durationChanged)
+    def duration(self):
+        return self._duration
+
+    @Property(bool, notify=validityChanged)
     def valid(self):
-        return -1 < self._inPoint < self._outPoint and self._inPoint < self._outPoint <= self._totalFrames
+        inPoint = self._inPoint if 0 <= self._inPoint else 0
+        outPoint = self._outPoint if 0 < self._outPoint else self._duration
+
+        return 0 < outPoint - inPoint <= self._duration and outPoint <= self._duration
 
     ## Setters
     @source.setter
@@ -94,33 +90,27 @@ class ClipInfo(QObject):
             raise FileNotFoundError(
                 f'File \'{value}\' does not exist'
             )
+        
         if self._source != value:
-            timeDur = self.timeDuration
-            oldOutPoint = self._outPoint
-            oldValid = self.valid
+            valid = self.valid
 
             file = VideoFileClip(value)
+
             self._source = file.filename
-            self._totalFrames:int = file.reader.nframes
+            self.sourceChanged.emit(self._source)
+
+            self._frames: int = file.reader.nframes
+
             self._frameRate: int = file.fps
+            self.frameRateChanged.emit(self._frameRate)
+
+            self._duration: float = file.duration * 1000
+            self.durationChanged.emit(self._duration)
 
             file.close()
 
-            print(f'Original dur: {timeDur}')
-            self._outPoint = self._inPoint + timeDur * (self._frameRate if self._frameRate != 0 else 24) / self._playRate
-            print(f'New outpoint: {self._outPoint:2f}')
-
-            self.clipChanged.emit(self._source, self._totalFrames, self._frameRate)
-
-            if self._outPoint != oldOutPoint:
-                self.outPointChanged.emit(self._outPoint)
-                
-            if self._name != self._source.split('/')[-1]:
-                self._name = self._source.split('/')[-1]
-                self.nameChanged.emit(self._name)
-
-            if self.valid != oldValid:
-                self.validChanged.emit(self.valid)
+            if self.valid != valid:
+                self.validityChanged.emit(self.valid)
 
     @name.setter
     def name(self, value: str):
@@ -136,24 +126,35 @@ class ClipInfo(QObject):
 
     @inPoint.setter
     def inPoint(self, value: int):
-        if 0 <= value < (self._outPoint if self._outPoint > -1 else self._totalFrames):
-            if self._inPoint != value:
-                oldValid = self.valid
+        valueValid = False
 
-                self._inPoint = value
-                self.inPointChanged.emit(self._inPoint)
+        if value == -1:
+            valueValid = True
 
-                if self.valid != oldValid:
-                    self.validChanged.emit(self.valid)
+        elif self._outPoint >= 0:
+            valueValid = (0 <= value < self._outPoint)
+
+        else:
+            valueValid = (0 <= value < self._duration)
+
+        if valueValid:
+            valid = self.valid
+            
+            self._inPoint = value
+            self.inPointChanged.emit(self._inPoint)
+
+            if self.valid != valid:
+                self.validityChanged.emit(self.valid)
 
     @outPoint.setter
     def outPoint(self, value: int):
-        if self._inPoint < value <= self._totalFrames:
-            if self._outPoint != value:
-                oldValid = self.valid
+        inPoint = self._inPoint if 0 <= self._inPoint else 0
 
-                self._outPoint = value
-                self.outPointChanged.emit(self._outPoint)
+        if value == -1 or (inPoint < value < self._duration):
+            valid = self.valid
 
-                if self.valid != oldValid:
-                    self.validChanged.emit(self.valid)
+            self._outPoint = value
+            self.outPointChanged.emit(self._outPoint)
+
+            if self.valid != valid:
+                self.validityChanged.emit(valid)

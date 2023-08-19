@@ -571,8 +571,8 @@ class MainWindow(QMainWindow):
                     videoclips: list[VideoFileClip] = []
                     for clip in clips:
                         clip: ClipInfo
-                        start = self.frameToTimeString(clip.inPoint)
-                        end = self.frameToTimeString(clip.outPoint)
+                        start = clip.inPoint / 1000 if clip.inPoint > 0 else 0
+                        end = clip.outPoint / 1000 if clip.outPoint > 1 else clip.duration / 1000
                         videoclips.append(VideoFileClip(clip.source, target_resolution=resolution).subclip(start, end))
 
                                  
@@ -602,12 +602,18 @@ class MainWindow(QMainWindow):
                     logger.loggerCalled.connect(loggerCalled)
 
                     temp_audiofile = ''.join(exportFile.split('.')[:-1]) + '_temp_audio.mp3'
+                    final = concatenate_videoclips(videoclips)
                     try:
-                        final = concatenate_videoclips(videoclips)
                         final.write_videofile(exportFile, codec=codec, bitrate=bitrate, audio=audio, temp_audiofile=temp_audiofile, threads=cores, logger=logger)
 
                         progressDialog.reset()
 
+                    except IndexError:
+                        final.subclip(t_end=(final.duration - 1.0/final.fps))
+
+                        final.write_videofile(exportFile, codec=codec, bitrate=bitrate, audio=audio, temp_audiofile=temp_audiofile, threads=cores, logger=logger)
+
+                        progressDialog.reset()
                     except OSError as e:
                         if (progressDialog.wasCanceled()):
                             QFile.remove(temp_audiofile)
@@ -975,9 +981,9 @@ class MainWindow(QMainWindow):
             ## Set the source of the selected clip to display
             sourceDisplay.setCurrentIndex(sourceDisplay.findText(sub(self.tempDir.path()+'/', '', selectedClip.source)))
             ## Convert and set the inpoint of the selected clip to display
-            inPointDisplay.setText(self.frameToTimeString(selectedClip.inPoint, selectedClip.frameRate))
+            inPointDisplay.setText(self.millieSectoTimeString(selectedClip.inPoint))
             ## Convert and set the outpoint of the selected clip to display
-            outPointDisplay.setText(self.frameToTimeString(selectedClip.outPoint, selectedClip.frameRate))
+            outPointDisplay.setText(self.millieSectoTimeString(selectedClip.outPoint))
 
             ## Loop through all the Comboboxes displaying the adjecent sources
             for adjecentSourceDisplay in adjecentSourceDisplays:
@@ -1090,7 +1096,25 @@ class MainWindow(QMainWindow):
     def sourceCurrentIndexChanged(self, index: int):
         timeline: TimelineModel = self.findChild(TimelineModel, 'timeline')
         # try:
+
+        length_old = timeline.data(timeline.createIndex(timeline.selectedIndex, 0, 0), timeline.Roles.LengthRole)
         timeline.setData(timeline.createIndex(timeline.selectedIndex, 0, 0), timeline.sources[index], timeline.Roles.SourceRole)
+
+
+        length_new = timeline.data(timeline.createIndex(timeline.selectedIndex, 0, 0), timeline.Roles.LengthRole)
+        duration_new = timeline.data(timeline.createIndex(timeline.selectedIndex, 0, 0), timeline.Roles.DurationRole)
+        
+        if not length_old == None and not duration_new == None:
+            if length_old > duration_new:
+                timeline.setData(timeline.createIndex(timeline.selectedIndex, 0, 0), -1, timeline.Roles.InPointRole)
+                timeline.setData(timeline.createIndex(timeline.selectedIndex, 0, 0), -1, timeline.Roles.OutPointRole)
+
+            elif length_new > length_old:
+                inPoint = timeline.data(timeline.createIndex(timeline.selectedIndex, 0, 0), timeline.Roles.InPointRole)
+                timeline.setData(timeline.createIndex(timeline.selectedIndex, 0, 0), inPoint + length_old, timeline.Roles.OutPointRole)
+
+            if timeline.selectedIndex == timeline.currentIndex:
+                timeline.currentClipChanged.emit(timeline.data(timeline.createIndex(timeline.selectedIndex, 0, 0)))
 
         # except IndexError:
         #     pass
@@ -1145,7 +1169,7 @@ class MainWindow(QMainWindow):
 
     def inPointReturnPressed(self):
         timeline: TimelineModel = self.findChild(TimelineModel, 'timeline')
-        timeline.setData(timeline.createIndex(timeline.selectedIndex, 0, 0), self.timeStringToFrames(self.newInPointText, timeline.selectedClip.frameRate), timeline.Roles.InPointRole)
+        timeline.setData(timeline.createIndex(timeline.selectedIndex, 0, 0), self.timeStringToMillieSec(self.newInPointText, timeline.selectedClip.frameRate), timeline.Roles.InPointRole)
         del self.newInPointText
     
     def outPointEdited(self, text: str):
@@ -1153,7 +1177,7 @@ class MainWindow(QMainWindow):
 
     def outPointReturnPressed(self):
         timeline: TimelineModel = self.findChild(TimelineModel, 'timeline')
-        timeline.setData(timeline.createIndex(timeline.selectedIndex, 0, 0), self.timeStringToFrames(self.newOutPointText, timeline.selectedClip.frameRate), timeline.Roles.OutPointRole)
+        timeline.setData(timeline.createIndex(timeline.selectedIndex, 0, 0), self.timeStringToMillieSec(self.newOutPointText, timeline.selectedClip.frameRate), timeline.Roles.OutPointRole)
         del self.newInPointText
 
     def clipDataVisibilityChanged(self, visible: bool):
@@ -1172,28 +1196,22 @@ class MainWindow(QMainWindow):
         return super(MainWindow, self).closeEvent(event)
 
     @staticmethod
-    def frameToTimeString(frames: int, fps = 25):
-        """
-        Converts a number of `frames`, into a string of format 'HH:MM:SS.MIS', where `fps` is the ratio between frames and a second.
+    def millieSectoTimeString(ms: int):
+        hours = floor(ms / ( 3600000))
+        remainder = ms % 3600000
+        minutes = floor(remainder / 60000)
+        remainder = remainder % 60000
+        seconds = floor(remainder / 1000)
+        ms = remainder % 1000
 
-        :param int frames: Number of frames to convert.
-        :param int fps: The number of frames that make up one second. (Default is 25)
-        """
-        hours = floor(frames / (fps * 3600))
-        remainder = frames % (fps * 3600)
-        minutes = floor(remainder / (fps* 60))
-        remainder = remainder % (fps * 60)
-        seconds = floor(remainder / fps)
-        milliseconds = int(remainder % fps)
-
-        return f'{hours:02d}:{minutes:02d}:{seconds:02d}.{milliseconds:03d}'
+        return f'{hours:02d}:{minutes:02d}:{seconds:02d}.{ms:03d}'
 
     @staticmethod
-    def timeStringToFrames(text: str, fps = 25):
+    def timeStringToMillieSec(text: str, fps = 25):
         hours, minutes, seconds, millieseconds = tuple(split(':|\.', text))
         hours = int(hours)
         minutes = int(minutes)
         seconds = int(seconds)
-        millieseconds = int(millieseconds) / 1000
+        millieseconds = int(millieseconds)
 
-        return hours * fps * 3600 + minutes * fps * 60 + seconds * fps + floor(millieseconds * fps)
+        return hours * 3600000 + minutes * 60000 + seconds * 1000 + millieseconds
